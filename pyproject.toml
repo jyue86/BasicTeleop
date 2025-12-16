@@ -1,0 +1,9 @@
+[project]
+name = "teleop"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "holoscan-cu12>=3.9.0",
+]
