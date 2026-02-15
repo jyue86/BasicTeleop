@@ -38,12 +38,14 @@ void RealsenseCameraOp::setup(OperatorSpec& spec) {
 void RealsenseCameraOp::start() {
   rs2::config config;
   try {
-    config.enable_stream(RS2_STREAM_COLOR, 1280, 800, RS2_FORMAT_RGB8, 30);
+    config.enable_stream(RS2_STREAM_COLOR, 1280, 800, RS2_FORMAT_RGBA8, 30);
     config.enable_stream(RS2_STREAM_DEPTH, 1280, 720, RS2_FORMAT_Z16, 30);
     profile_ = pipeline_.start(config);
     HOLOSCAN_LOG_INFO("Realsense camera started.");
   } catch (const rs2::error& e) {
     HOLOSCAN_LOG_WARN("RealSense error calling {}: {}", e.get_failed_function(), e.what());
+
+    nvidia::gxf::VideoFormat::GXF_VIDEO_FORMAT_GRAY;
 
     // Do not hardcode resolution/FPS to allow auto-negotiation (e.g. for USB2 or different camera models)
     config.enable_stream(RS2_STREAM_COLOR, RS2_FORMAT_RGB8);
@@ -65,7 +67,6 @@ void RealsenseCameraOp::stop() {
 
 void RealsenseCameraOp::compute(InputContext& op_input, OutputContext& op_output,
                                 ExecutionContext& context) {
-  HOLOSCAN_LOG_INFO("Starting compute step.");
   auto allocator = nvidia::gxf::Handle<nvidia::gxf::Allocator>::Create(
       fragment()->executor().context(), allocator_->gxf_cid());
 
@@ -81,7 +82,7 @@ void RealsenseCameraOp::compute(InputContext& op_input, OutputContext& op_output
       static_cast<nvidia::gxf::Entity>(color_buffer_message)
           .add<nvidia::gxf::VideoBuffer>("color_buffer")
           .value();
-  color_buffer->resize<nvidia::gxf::VideoFormat::GXF_VIDEO_FORMAT_RGB>(
+  color_buffer->resize<nvidia::gxf::VideoFormat::GXF_VIDEO_FORMAT_RGBA>(
       color_frame.get_width(),
       color_frame.get_height(),
       nvidia::gxf::SurfaceLayout::GXF_SURFACE_LAYOUT_PITCH_LINEAR,
@@ -97,7 +98,6 @@ void RealsenseCameraOp::compute(InputContext& op_input, OutputContext& op_output
   if (cuda_error != cudaSuccess) {
     throw std::runtime_error("cudaMemcpy() failed for color_frame");
   }
-  HOLOSCAN_LOG_INFO("Color frame copied to device buffer, time to emit.");
   op_output.emit(color_buffer_message, "color_buffer");
 
   // Emit the color camera model.
@@ -135,7 +135,6 @@ void RealsenseCameraOp::compute(InputContext& op_input, OutputContext& op_output
   if (cuda_error != cudaSuccess) {
     throw std::runtime_error("cudaMemcpy() failed for depth_frame");
   }
-  HOLOSCAN_LOG_INFO("Depth frame copied to device buffer, time to emit.");
   op_output.emit(depth_buffer_message, "depth_buffer");
 
   // Emit the depth camera model.
@@ -178,7 +177,9 @@ void RealsenseApp::compose() {
         Arg("tensors", input_spec));
 
     add_flow(
-        realsense_camera_op, visualizer, {{"color_buffer", "receivers"}, {"depth_buffer", "receivers"}});
+        realsense_camera_op, visualizer, {{"color_buffer", "receivers"}});
+    add_flow(
+        realsense_camera_op, visualizer, {{"depth_buffer", "receivers"}});
 }
 
 int main() {
