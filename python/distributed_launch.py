@@ -1,8 +1,16 @@
-from holoscan.core import Application, Fragment, Operator, OperatorSpec
-from holoscan.conditions import PeriodicCondition
-from pynput import keyboard
+import threading
+
+import msgpack
+import msgpack_numpy as mnp
 import numpy as np
 import cv2
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import ByteMultiArray
+from pynput import keyboard
+
+from holoscan.core import Application, Fragment, Operator, OperatorSpec
+from holoscan.conditions import PeriodicCondition
 
 class CarlaKeyboardControllerOp(Operator):
     def __init__(self, fragment: Fragment, name: str):
@@ -36,6 +44,71 @@ class CarlaKeyboardControllerOp(Operator):
             self._steer = max(self._steer - 0.1, -1.0)
         elif key == keyboard.Key.right:
             self._steer = min(self._steer + 0.1, 1.0)
+
+
+class XRControllerOp(Operator):
+    """Holoscan operator that subscribes to /xr_teleop/controller_data
+    and emits accel/steer from XR controller thumbsticks."""
+
+    def __init__(self, fragment: Fragment, name: str):
+        super().__init__(fragment, name=name)
+        self._node = None
+        self._spin_thread = None
+        self._shutdown = False
+        self._lock = threading.Lock()
+        self._accel = 0.0
+        self._steer = 0.0
+
+    def setup(self, spec: OperatorSpec):
+        spec.output("accel")
+        spec.output("steer")
+
+    def start(self):
+        self._node = Node("holoscan_xr_controller")
+        self._node.create_subscription(
+            ByteMultiArray,
+            "/xr_teleop/controller_data",
+            self._on_controller_data,
+            10,
+        )
+        self._shutdown = False
+        self._spin_thread = threading.Thread(target=self._spin, daemon=True)
+        self._spin_thread.start()
+
+    def _spin(self):
+        try:
+            while not self._shutdown and rclpy.ok():
+                rclpy.spin_once(self._node, timeout_sec=0.1)
+        except Exception as e:
+            print(f"ROS2 spin error: {e}")
+
+    def _on_controller_data(self, msg: ByteMultiArray):
+        data = msgpack.unpackb(
+            bytes([ab for a in msg.data for ab in a]),
+            object_hook=mnp.decode,
+        )
+        left_thumbstick = data.get("left_thumbstick", [0.0, 0.0])
+        right_thumbstick = data.get("right_thumbstick", [0.0, 0.0])
+
+        with self._lock:
+            # Left thumbstick Y-axis -> accel (forward/backward)
+            self._accel = float(left_thumbstick[1])
+            # Right thumbstick X-axis -> steer (left/right)
+            self._steer = float(right_thumbstick[0])
+
+    def compute(self, op_input, op_output, context):
+        with self._lock:
+            accel = self._accel
+            steer = self._steer
+        op_output.emit(accel, "accel")
+        op_output.emit(steer, "steer")
+
+    def stop(self):
+        self._shutdown = True
+        if self._spin_thread is not None:
+            self._spin_thread.join(timeout=2.0)
+        if self._node is not None:
+            self._node.destroy_node()
 
 
 class CarlaCameraSensorOp(Operator):
@@ -161,7 +234,8 @@ class RemoteWorkstationFragment(Fragment):
         super().__init__(app, name=name)
 
     def compose(self):
-        carla_controller = CarlaKeyboardControllerOp(self, name="carla_controller")
+        # carla_controller = CarlaKeyboardControllerOp(self, name="carla_controller")
+        carla_controller = XRControllerOp(self, name="carla_controller")
         # camera_viewer = CarlaCameraViewerOp(self, name="camera_viewer")
 
         # self.add_operator(camera_viewer)
@@ -308,8 +382,12 @@ class TeleopApp(Application):
 
 
 def main():
-    app = TeleopApp()
-    app.run()
+    rclpy.init()
+    try:
+        app = TeleopApp()
+        app.run()
+    finally:
+        rclpy.shutdown()
 
 
 if __name__ == "__main__":
