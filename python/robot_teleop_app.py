@@ -50,7 +50,9 @@ Note
 """
 
 import os
+import sys
 
+import pygame
 from holoscan.conditions import PeriodicCondition
 from holoscan.core import Application, Fragment, Operator, OperatorSpec
 
@@ -76,6 +78,13 @@ class SteeringWheelTxOp(SteeringWheelOperator):
 
     def compute(self, op_input, op_output, context):
         steering_angle, brake_raw, accel_raw = self._controller.parse_events()
+
+        # E-stop: space bar kills everything immediately.
+        if pygame.key.get_pressed()[pygame.K_SPACE]:
+            op_output.emit(0.0, "accel")
+            op_output.emit(0.0, "steering_angle")
+            print("[E-STOP] Space bar pressed — shutting down.")
+            sys.exit(0)
 
         # accel_raw: -1 (pedal up / released) → +1 (pedal floored)
         # brake_raw: +1 (pedal up / released) → -1 (pedal floored)
