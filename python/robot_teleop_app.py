@@ -23,7 +23,7 @@ Velocity mapping
   angular.z = clamp(-steering_angle / 0.5 * MAX_ANGULAR, -3.14, +3.14)  rad/s
 
   where net_linear = throttle - brake
-        throttle   = (accel + 1) / 2        # 0 when pedal up, 1 when floored
+        throttle   = (1 - accel) / 2        # 0 when pedal up, 1 when floored
         brake      = (1 - brake_raw) / 2    # 0 when pedal up, 1 when floored
 
 Usage — distributed
@@ -59,46 +59,48 @@ from holoscan.core import Application, Fragment, Operator, OperatorSpec
 from python.steering_wheel_operator import SteeringWheelOperator
 
 # Robot velocity limits (from teleop.py / robot manual)
-MAX_LINEAR  = 1.2   # m/s
-MAX_ANGULAR = 3.14  # rad/s
+MAX_LINEAR  = 0.1   # m/s
+MAX_ANGULAR = 0.5  # rad/s
 
 
 # ── Steering wheel fragment ────────────────────────────────────────────────────
 
-class SteeringWheelTxOp(SteeringWheelOperator):
-    """SteeringWheelOperator extended with output ports.
+# class SteeringWheelTxOp(SteeringWheelOperator):
+#     """SteeringWheelOperator extended with output ports.
 
-    Inherits hardware initialisation (start()) from SteeringWheelOperator.
-    Overrides setup() to declare outputs and compute() to emit them.
-    """
+#     Inherits hardware initialisation (start()) from SteeringWheelOperator.
+#     Overrides setup() to declare outputs and compute() to emit them.
+#     """
 
-    def setup(self, spec: OperatorSpec):
-        spec.output("accel")           # float, net linear signal -1 → +1
-        spec.output("steering_angle")  # float, ±0.5
+#     def setup(self, spec: OperatorSpec):
+#         spec.output("accel")           # float, net linear signal -1 → +1
+#         spec.output("steering_angle")  # float, ±0.5
 
-    def compute(self, op_input, op_output, context):
-        steering_angle, brake_raw, accel_raw = self._controller.parse_events()
+#     def compute(self, op_input, op_output, context):
+#         steering_angle, brake_raw, accel_raw = self._controller.parse_events()
 
-        # E-stop: space bar kills everything immediately.
-        if pygame.key.get_pressed()[pygame.K_SPACE]:
-            op_output.emit(0.0, "accel")
-            op_output.emit(0.0, "steering_angle")
-            print("[E-STOP] Space bar pressed — shutting down.")
-            sys.exit(0)
+#         # E-stop: space bar kills everything immediately.
+#         if pygame.key.get_pressed()[pygame.K_SPACE]:
+#             op_output.emit(0.0, "accel")
+#             op_output.emit(0.0, "steering_angle")
+#             print("[E-STOP] Space bar pressed — shutting down.")
+#             sys.exit(0)
 
-        # accel_raw: -1 (pedal up / released) → +1 (pedal floored)
-        # brake_raw: +1 (pedal up / released) → -1 (pedal floored)
-        throttle   = (accel_raw + 1.0) / 2.0   # 0.0 → 1.0
-        brake      = (1.0 - brake_raw) / 2.0   # 0.0 → 1.0
-        net_linear = throttle - brake           # -1.0 → +1.0
+#         # accel_raw: +1 (pedal up / released) → -1 (pedal floored)
+#         # brake_raw: +1 (pedal up / released) → -1 (pedal floored)
+#         print_str = f"Steering angle: {steering_angle:.2f} | Brake: {brake_raw:.2f} | Accel: {accel_raw:.2f}"
+#         print(print_str)
+#         throttle   = (1.0 - accel_raw) / 2.0   # 0.0 → 1.0
+#         brake      = (1.0 - brake_raw) / 2.0   # 0.0 → 1.0
+#         net_linear = throttle - brake           # -1.0 → +1.0
 
-        op_output.emit(float(net_linear),     "accel")
-        op_output.emit(float(steering_angle), "steering_angle")
+#         op_output.emit(float(net_linear),     "throttle")
+#         op_output.emit(float(steering_angle), "steering_angle")
 
 
 class SteeringWheelFragment(Fragment):
     def compose(self):
-        steering_op = SteeringWheelTxOp(
+        steering_op = SteeringWheelOperator(
             self,
             PeriodicCondition(self, recess_period=10_000_000),  # 10 ms → 100 Hz
             name="steering_wheel",
@@ -147,7 +149,7 @@ class RobotTeleopOp(Operator):
         print("[RobotTeleopOp] Zero-velocity stop sent.")
 
     def compute(self, op_input, op_output, context):
-        accel          = float(op_input.receive("accel"))
+        accel          = float(op_input.receive("throttle"))
         steering_angle = float(op_input.receive("steering_angle"))
 
         msg = self._Twist()
@@ -211,7 +213,7 @@ class RobotTeleopApp(Application):
             steering_fragment,
             robot_fragment,
             {
-                ("steering_wheel.accel",          "robot_teleop.accel"),
+                ("steering_wheel.throttle",          "robot_teleop.throttle"),
                 ("steering_wheel.steering_angle",  "robot_teleop.steering_angle"),
             },
         )

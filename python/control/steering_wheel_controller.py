@@ -84,8 +84,6 @@ class SteeringwheelController(object):
         # Currently, the Pandarunner's reverse gear is not available
         # self._control.reverse = self._control.gear < 0
 
-        # throttle = self._accel if self._brake - 0.0  > 0.05 else -self._brake
-        # return self._steering_angle, throttle  
         return self._steering_angle, self._brake, self._accel
 
     def _parse_vehicle_keys(self, keys, milliseconds):

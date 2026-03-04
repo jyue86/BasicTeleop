@@ -19,18 +19,16 @@ class SteeringWheelOperator(Operator):
         self._controller = SteeringwheelController(joystick)
 
     def setup(self, spec: OperatorSpec):
-        # spec.output("accel")
-        # spec.output("steering_angle")
-        pass
+        spec.output("throttle")
+        spec.output("steering_angle")
 
     def compute(self, op_input, op_output, context):
         steering_angle, brake, accel = self._controller.parse_events()
-        print("Steering angle:", steering_angle) # -1 to 1, start at 0
-        print("Brake:", brake) # 1 to -1, start at 1
-        print("Accel:", accel) # -1 to 1, start at -1
-        # op_output.emit(throttle, "accel")
-        # op_output.emit(steering_angle, "steering_angle")
-
+        brake = (-brake + 1)/2
+        throttle = (-accel + 1)/2
+        throttle = throttle - brake
+        op_output.emit(throttle, "throttle")
+        op_output.emit(steering_angle, "steering_angle")
 
 class SteeringWheelApp(Application):
     def __init__(self):
