@@ -56,7 +56,7 @@ from holoscan.core import Application, Fragment, Operator, OperatorSpec
 from python.steering_wheel_operator import SteeringWheelOperator
 
 # Robot velocity limits (from teleop.py / robot manual)
-MAX_LINEAR  = 0.2   # m/s
+MAX_LINEAR  = 0.5   # m/s
 MAX_ANGULAR = 3.14  # rad/s
 
 class SteeringWheelFragment(Fragment):
